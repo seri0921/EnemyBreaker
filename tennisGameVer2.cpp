@@ -12,7 +12,7 @@ int remainingSec;
 
 // ==== プレイヤーに関する情報 ====
 int playerHP; // プレイヤーの体力（3回当たるとゲームオーバー）
-int startPlayerHP = 10;
+int startPlayerHP = 5;
 int playerLevel = 1;
 int playerAttack = 1;
 int reflectCount = 0;     // 連続反射回数
@@ -51,19 +51,19 @@ void EnemySpawn(int i) {
         enemies[i].w = 40;
         enemies[i].h = 15;
         enemies[i].hp = 1;
-        enemies[i].vy = 5;  // 速い
+        enemies[i].vy = 10;  // 速い
         break;
     case 1: // 中くらいの敵
         enemies[i].w = 60;
         enemies[i].h = 25;
         enemies[i].hp = 3;
-        enemies[i].vy = 3;  // 標準
+        enemies[i].vy = 5;  // 標準
         break;
     case 2: // 大きい敵
         enemies[i].w = 90;
         enemies[i].h = 40;
         enemies[i].hp = 5;
-        enemies[i].vy = 1;  // 遅い
+        enemies[i].vy = 3;  // 遅い
         break;
     }
 
@@ -74,7 +74,7 @@ void EnemySpawn(int i) {
         overlap = false;
 
         enemies[i].x = rand() % (WIDTH - enemies[i].w);
-        enemies[i].y = rand() % 80 + 20;
+        enemies[i].y = rand() % 80 + 60;
 
         for (int j = 0; j < i; j++) {
             int dx = abs(enemies[i].x - enemies[j].x);
@@ -98,10 +98,12 @@ struct Bullet {
     bool active;  // この弾が存在するか
 };
 
-int attakDuration = 180; // 60につき1秒 
+int attakDuration = 150; // 60につき1秒 
 int bulletSpeed = 4;
 
-int healthRatio = 50; //回復弾を出す確率
+int healthRatio = 10; //回復弾を出す確率
+
+int ballHitCoolTime = 0; // 衝突後のクールタイム（フレーム単位）
 
 const int BULLET_MAX = 100; // 最大100発まで
 Bullet bullets[BULLET_MAX];
@@ -148,7 +150,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     int highScore = 1000; // ハイスコアを代入
     int dx, dy; // ヒットチェック用の変数宣言
 
-    int imgBg = LoadGraph("image/bg.png"); // 背景画像の読み込み
+    int imgBg = LoadGraph("image/bg3_2.png"); // 背景画像の読み込み
+    int imgTl = LoadGraph("image/tl_2.png");
+    int imgRs = LoadGraph("image/rs_1.png");
+    int imgGo = LoadGraph("image/go_1.png");
 
     // サウンドの読み込みと音量設定
     int bgm = LoadSoundMem("sound/bgm.mp3");
@@ -166,8 +171,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         switch (scene) // タイトル、ゲームをプレイ、ゲームオーバーの分岐
         {
         case TITLE_Scene: // タイトル画面の処理
+            DrawGraph(0, 0, imgTl, FALSE); // 背景の描画
             SetFontSize(50);
-            DrawString(WIDTH / 2 - 50 / 2 * 12 / 2, HEIGHT / 3, "Tennis Game", 0x00ff00);
+            DrawString(WIDTH / 2 - 50 / 2 * 12 / 2, HEIGHT / 3, "Enemy Breaker", 0x00ff00);
             // 文字を点滅表示の処理
             if (timer % 60 < 30) { 
                 SetFontSize(30);
@@ -176,7 +182,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             if (CheckHitKey(KEY_INPUT_SPACE) == 1) // スペースキー押し下し
             {
                 ballX = WIDTH / 2 - 100;
-                ballY = HEIGHT / 2 - 150;
+                ballY = HEIGHT / 2 - 120;
                 ballVx = 5;
                 ballVy = 5;
                 racketX = WIDTH / 2;
@@ -193,6 +199,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 elapsedFrame = 0; // 制限時間カウンタをリセット
                 remainingSec = 0; //残り時間をリセット
 
+                //敵の情報をリセット
+                enemySpawnTimer = 0; // 敵の生成タイマーリセット
+
+                for (int i = 0; i < ENEMY_MAX; i++) {
+                    enemies[i].alive = false;
+                    enemies[i].hp = 0;
+                    enemies[i].x = 0;
+                    enemies[i].y = 0;
+                    enemies[i].moveTimer = 0;
+                    enemies[i].attackTimer = 0;
+                    enemies[i].sizeType = 0;
+                }
+
+                //弾の情報をリセット
+                for (int i = 0; i < BULLET_MAX; i++) {
+                    bullets[i].active = false;
+                }
                 scene = PLAY_Scene; //プレイ画面へ移動
                 PlaySoundMem(bgm, DX_PLAYTYPE_LOOP); // BGMをループ再生
             }
@@ -200,21 +223,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         // ==== プレイ中の処理 ====
         case PLAY_Scene: 
+            DrawGraph(0, 0, imgBg, FALSE); // 背景の描画
             // ==== プレイ中のUI ====
             SetFontSize(20); // 文字の大きさ
             DrawFormatString(10, 10, 0xffffff, "SCORE %d", score); //スコアを表示
-            DrawFormatString(10, 40, GetColor(255, 0, 0), "PLAYER HP: %d", playerHP); // プレイヤーのHPを表示
-            DrawFormatString(10, 70, GetColor(0, 255, 0), "LEVEL: %d", playerLevel); //プレイヤーのレベルを表示
-            DrawFormatString(10, 100, GetColor(0, 200, 255), "ATK: %d", playerAttack); //プレイヤーの攻撃力を表示
-            DrawFormatString(10, 130, GetColor(255, 255, 0), "REFLECT: %d / %d", reflectCount, maxReflect); //プレイヤーの反射回数を表示
-            DrawFormatString(WIDTH - 200, 10, 0xffff00, "HI-SC %d", highScore); //ハイスコアを表示
-            DrawFormatString(WIDTH - 300, 50, GetColor(255, 255, 255), "TIME: %3d", remainingSec);
+            DrawFormatString(170, 10, GetColor(255, 0, 0), "PLAYER HP: %d", playerHP); // プレイヤーのHPを表示
+            DrawFormatString(330, 10, GetColor(0, 255, 0), "LEVEL: %d", playerLevel); //プレイヤーのレベルを表示
+            DrawFormatString(440, 10, GetColor(0, 200, 255), "ATK: %d", playerAttack); //プレイヤーの攻撃力を表示
+            DrawFormatString(530, 10, GetColor(255, 255, 0), "REFLECT: %d / %d", reflectCount, maxReflect); //プレイヤーの反射回数を表示
+            DrawFormatString(WIDTH - 250, 10, 0xffff00, "HI-SC %d", highScore); //ハイスコアを表示
+            DrawFormatString(WIDTH - 120, 10, GetColor(255, 255, 255), "TIME: %3d", remainingSec); // 制限時間を表示
 
             // ==== 敵と弾を初期化する処理 ====
             if (playStart) {
-                for (int i = 0; i < BULLET_MAX; i++) {
-                    bullets[i].active = false;
-                }
 
                 for (int i = 0; i < ENEMY_BATCH; i++) {
                     EnemySpawn(i);
@@ -223,7 +244,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
 
             // ==== ボールの処理 ====
-            
+            //ボールの判定のクールタイムの処理
+            if (ballHitCoolTime > 0) {
+                ballHitCoolTime--; // 毎フレーム減らす
+            }
+
             // ボールの移動処理
             ballX = ballX + ballVx;
             if (ballX < ballR && ballVx < 0) ballVx = -ballVx;
@@ -336,6 +361,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     // 画面下に出たら消す
                     if (enemies[i].y > HEIGHT) {
                         enemies[i].alive = false;
+                        scene = GAMEOVER_Scene;
                     }
                 }
             }
@@ -347,13 +373,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
                     // 弾の描画
                     if (bullets[i].isHeal) {
-                        // 💊 回復弾（緑）
+                        //  回復弾（緑）
                         if (timer % 10 < 5) {
                             DrawCircle(bullets[i].x, bullets[i].y, 6, GetColor(0, 255, 0), TRUE);
                         }
                     }
                     else {
-                        // 🔥 通常攻撃弾（黄色）
+                        //  通常攻撃弾（黄色）
                         DrawCircle(bullets[i].x, bullets[i].y, 5, GetColor(255, 255, 0), TRUE);
                     }
 
@@ -377,9 +403,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                         by + br > py1 && by - br < py2)
                     {
                         if (bullets[i].isHeal) {
-                            // 💊 回復弾：HP回復
+                            //  回復弾：HP回復
                             if (playerHP < startPlayerHP) {
                                 playerHP++;
+                                //回復エフェクト
                                 for (int k = 0; k < 3; k++) {
                                     DrawCircle(racketX, racketY, 40 + k * 10, GetColor(0, 255, 0), FALSE);
                                 }
@@ -387,9 +414,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                             }
                         }
                         else {
-                            // 💥 攻撃弾：ダメージ
+                            //  攻撃弾：ダメージ
                             playerHP--;
+                            if (score - 500 <= 0) {
+                                score = 0;
+                            }
+                            else {
+                                score -= 500;
+                            }
+                           
                             PlaySoundMem(jin, DX_PLAYTYPE_BACK);
+                            WaitTimer(500); // 0.5秒待機して再開
+
                             if (playerHP <= 0) {
                                 scene = GAMEOVER_Scene;
                                 timer = 0;
@@ -425,7 +461,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             if (-racketW / 2 - 10 < dx && dx < racketW / 2 + 10 && -20 < dy && dy < 0)
             {
                 ballVy = -5 - rand() % 5;
-                score = score + 100;
                 if (score > highScore) highScore = score; // ハイスコアの更新
                 PlaySoundMem(se, DX_PLAYTYPE_BACK); // 効果音を出力
 
@@ -441,46 +476,50 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
 
             // ==== 敵とボールの当たり判定 ====
-            for (int i = 0; i < ENEMY_MAX; i++) {
-                if (enemies[i].alive) {
+            if (ballHitCoolTime == 0) {
+                for (int i = 0; i < ENEMY_MAX; i++) {
+                    if (enemies[i].alive) {
 
-                    // 敵の座標範囲
-                    int left = enemies[i].x;
-                    int right = enemies[i].x + enemies[i].w;
-                    int top = enemies[i].y;
-                    int bottom = enemies[i].y + enemies[i].h;
+                        // 敵の座標範囲
+                        int left = enemies[i].x;
+                        int right = enemies[i].x + enemies[i].w;
+                        int top = enemies[i].y;
+                        int bottom = enemies[i].y + enemies[i].h;
 
-                    // ボールの中心座標と半径
-                    int bx = ballX;
-                    int by = ballY;
-                    int r = ballR;
+                        // ボールの中心座標と半径
+                        int bx = ballX;
+                        int by = ballY;
+                        int r = ballR;
 
-                    // ---- 衝突判定（円と矩形の簡易判定）----
-                    // ① ボールの中心が敵の四角の中にある
-                    if (bx + r > left && bx - r < right &&
-                        by + r > top && by - r < bottom)
-                    {
-                        enemies[i].hp -= playerAttack; //  攻撃力分だけHPを減らす
-                        // HPが0以下になったら倒す
-                        if (enemies[i].hp <= 0) {
-                            enemies[i].alive = false;
+                        // ---- 衝突判定（円と矩形の簡易判定）----
+                        // ① ボールの中心が敵の四角の中にある
+                        if (bx + r > left && bx - r < right &&
+                            by + r > top && by - r < bottom)
+                        {
+                            enemies[i].hp -= playerAttack; //  攻撃力分だけHPを減らす
+                            // HPが0以下になったら倒す
+                            if (enemies[i].hp <= 0) {
+                                enemies[i].alive = false;
 
-                            int addScore = 0;
-                            switch (enemies[i].sizeType) {
-                            case 0: addScore = 100; break; // 小
-                            case 1: addScore = 300; break; // 中
-                            case 2: addScore = 600; break; // 大
+                                int addScore = 0;
+                                switch (enemies[i].sizeType) {
+                                case 0: addScore = 100; break; // 小
+                                case 1: addScore = 300; break; // 中
+                                case 2: addScore = 600; break; // 大
+                                }
+
+                                score += addScore;
                             }
 
-                            score += addScore;
+                            ballVy = -ballVy;           // ボールを反射
+                            PlaySoundMem(se, DX_PLAYTYPE_BACK); // 効果音
+                            ballHitCoolTime = 7;//クールタイム
+                            break; // 1体にしか当たらないようにループ終了
                         }
-
-                        ballVy = -ballVy;           // ボールを反射
-                        PlaySoundMem(se, DX_PLAYTYPE_BACK); // 効果音
-                        break; // 1体にしか当たらないようにループ終了
                     }
                 }
             }
+            
 
             // === 経過時間をカウントする処理 ===
             elapsedFrame++;
@@ -500,28 +539,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         // リザルト画面の処理
         case RESULT_Scene:
+            DrawGraph(0, 0, imgRs, FALSE); // 背景の描画
             SetFontSize(40);
             DrawString(WIDTH / 2 - 150, HEIGHT / 3, "TIME UP!", GetColor(255, 255, 0));
-            DrawFormatString(WIDTH / 2 - 100, HEIGHT / 2, GetColor(255, 255, 255), "SCORE: %d", score);
+            DrawFormatString(WIDTH / 2 - 100, HEIGHT / 2, GetColor(255, 0, 0), "SCORE: %d", score);
 
             if (timer > 60 * 5) scene = TITLE_Scene; // 5秒後タイトルに戻る
             break;
 
         //  ==== ゲームオーバーの処理 ====
         case GAMEOVER_Scene: 
+            DrawGraph(0, 0, imgGo, FALSE); // 背景の描画
             SetFontSize(40);
             DrawString(WIDTH / 2 - 40 / 2 * 9 / 2, HEIGHT / 3, "GAME OVER", 0xff0000);
             if (timer > 60 * 5) scene = TITLE_Scene;
             break;
         }
-
-        //SetFontSize(30); // スコアとハイスコアの文字の大きさ
-        //DrawFormatString(10, 10, 0xffffff, "SCORE %d", score); //スコアを表示
-        //DrawFormatString(10, 40, GetColor(255, 0, 0), "PLAYER HP: %d", playerHP); // プレイヤーのHPを表示
-        //DrawFormatString(10, 70, GetColor(0, 255, 0), "LEVEL: %d", playerLevel); //プレイヤーのレベルを表示
-        //DrawFormatString(10, 100, GetColor(0, 200, 255), "ATK: %d", playerAttack); //プレイヤーの攻撃力を表示
-        //DrawFormatString(10, 130, GetColor(255, 255, 0), "REFLECT: %d / %d", reflectCount, maxReflect); //プレイヤーの反射回数を表示
-        //DrawFormatString(WIDTH - 200, 10, 0xffff00, "HI-SC %d", highScore);
 
         ScreenFlip(); // 裏画面の内容を表画面に反映させる
         WaitTimer(16); // 一定時間待つ
