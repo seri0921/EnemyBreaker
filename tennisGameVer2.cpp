@@ -5,7 +5,7 @@
 const int WIDTH = 960, HEIGHT = 640; // ウィンドウの幅と高さのピクセル数
 
 // ==== 制限時間を実装するための変数
-const int LIMIT_TIME = 120; // 制限時間（秒）
+const int LIMIT_TIME = 30; // 制限時間（秒）
 int elapsedFrame = 0;       // 経過フレーム数
 int remainingSec;
 
@@ -498,13 +498,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                            
                             PlaySoundMem(damage_Se, DX_PLAYTYPE_BACK);
                             WaitTimer(500); // 0.5秒待機して再開
-
-                            if (playerHP <= 0) {
-                                scene = GAMEOVER_Scene;
-                                timer = 0;
-                                StopSoundMem(bgm);
-                                PlaySoundMem(jin, DX_PLAYTYPE_BACK);
-                            }
                         }
                         bullets[i].active = false;  // 弾を消す
                     }
@@ -674,6 +667,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 timer = 0;
                 StopSoundMem(bgm);
                 PlaySoundMem(result, DX_PLAYTYPE_BACK);
+            }
+            // ==== プレイヤーの体力チェック ====
+            if (playerHP <= 0) {
+                scene = GAMEOVER_Scene;
+                timer = 0;
+                StopSoundMem(bgm);
+                PlaySoundMem(jin, DX_PLAYTYPE_BACK);
             }
 
             break;
